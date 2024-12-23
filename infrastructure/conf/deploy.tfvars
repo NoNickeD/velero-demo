@@ -1,0 +1,11 @@
+cidr_block            = "10.0.0.0/16"
+cluster_version       = "1.31"
+cluster_name          = "velero-demo"
+instance_types        = ["t3.large"]
+instance_types_system = ["t3.large"]
+name                  = "velero-demo"
+profile               = "sandbox"
+region                = "eu-central-1"
+project               = "velero"
+disk_size_system      = "40"
+velero_bucket_name    = "velero-backups-velero-demo-nn"

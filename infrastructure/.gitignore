@@ -1,0 +1,8 @@
+.idea
+.DS_STORE
+.terraform
+*.tfstate
+*.log
+*.terraform.lock.hcl
+*.txt
+terraform.tfstate.backup

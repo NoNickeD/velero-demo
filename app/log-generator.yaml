@@ -1,0 +1,137 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sre-log-generator
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: log-generator-secret
+  namespace: sre-log-generator
+type: Opaque
+data:
+  server_address: "OjgwODA=" # Base64 encoded ":8080"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: log-generator-deployment
+  namespace: sre-log-generator
+  labels:
+    app: log-generator
+spec:
+  replicas: 2 # Best practice to ensure high availability
+  selector:
+    matchLabels:
+      app: log-generator
+  template:
+    metadata:
+      labels:
+        app: log-generator
+    spec:
+      containers:
+        - name: log-generator
+          image: ttl.sh/9222a6cf-8b5f-4ec5-8108-47f6bf43e12c:2h # Update with your actual image registry and tag
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SERVER_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: log-generator-secret
+                  key: server_address
+            - name: OTEL_SERVICE_NAME
+              value: "log-generator"  # Customize service name for tracing
+            - name: OTEL_TRACES_SAMPLER
+              value: "always_on"  # Ensures all traces are sampled
+          livenessProbe: # Ensure the container is healthy
+            httpGet:
+              path: "/healthz"
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe: # Check if the container is ready to serve requests
+            httpGet:
+              path: "/healthz"
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources: # Set resource requests and limits for stability
+            requests:
+              memory: "128Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 3000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: log-generator-service
+  namespace: sre-log-generator
+  labels:
+    app: log-generator
+spec:
+  selector:
+    app: log-generator
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: log-generator-ingress
+  namespace: sre-log-generator
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: "/"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m" # Limits size of requests
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: log-generator.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: log-generator-service
+                port:
+                  number: 80
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: log-generator-hpa
+  namespace: sre-log-generator
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: log-generator-deployment
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 50

@@ -1,0 +1,50 @@
+version: "3"
+
+tasks:
+  velero-role:
+    desc: "Create a Role for Velero."
+    cmds:
+      - kubectl apply --filename velero-role.yaml
+    silent: true
+
+  velero-clusterrolebinding:
+    desc: "Create a ClusterRoleBinding for Velero."
+    cmds:
+      - kubectl apply --filename velero-clusterrolebinding.yaml
+    silent: true
+
+  install-velero:
+    desc: "Install Velero."
+    deps:
+      - velero-role
+      - velero-clusterrolebinding
+    cmds:
+      - |
+        velero install --provider aws \
+          --bucket "$(tofu output -raw velero_bucket_name)" \
+          --plugins velero/velero-plugin-for-aws:v1.6.0 \
+          --use-volume-snapshots=false \
+          --backup-location-config region=$(tofu output -raw region),s3ForcePathStyle="true",s3Url=https://s3.$(tofu output -raw region).amazonaws.com \
+          --namespace "$(tofu output -raw velero_service_account_namespace)" \
+          --service-account-name "$(tofu output -raw velero_service_account_name)" \
+          --pod-labels "node-type=system" \
+          --no-secret
+    silent: true
+
+  patch-deployment:
+    desc: "Patch the Velero deployment."
+    deps:
+      - install-velero
+    cmds:
+      - |
+        kubectl patch deployment velero \
+          -n "$(tofu output -raw velero_service_account_namespace)" \
+          --type='json' \
+          -p='[{"op": "add", "path": "/spec/template/spec/tolerations", "value": [{"key": "node-type", "operator": "Equal", "value": "system", "effect": "NoSchedule"}]}]'
+    silent: true
+
+  setup-velero:
+    desc: "Install prerequisites and Velero."
+    deps:
+      - patch-deployment
+    silent: true
